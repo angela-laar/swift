@@ -2858,6 +2858,12 @@ private:
   /// Cached member lookups.
   llvm::DenseMap<std::pair<Type, DeclNameRef>, Optional<LookupResult>>
     MemberLookups;
+  
+  /// Cached prechecked bodies.
+  llvm::SetVector<BraceStmt*> PrecheckedClosureBodies;
+  
+  /// The overload sets that have been resolved along the current path.
+  // llvm::MapVector<BraceStmt *, SelectedOverload> PrecheckedBodies;
 
   /// Folding set containing all of the locators used in this
   /// constraint system.
