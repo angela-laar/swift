@@ -1389,8 +1389,8 @@ namespace {
 /// Perform prechecking of a ClosureExpr before we dive into it.  This returns
 /// true when we want the body to be considered part of this larger expression.
 bool PreCheckExpression::walkToClosureExprPre(ClosureExpr *closure) {
-  //Precheck is now postponed until constraint generation
-  return false;
+    // Precheck is now postponed until constraint generation
+    return false;
 }
 
 TypeExpr *PreCheckExpression::simplifyNestedTypeExpr(UnresolvedDotExpr *UDE) {

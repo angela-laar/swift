@@ -67,6 +67,8 @@ class ConstraintGraphNode;
 class ConstraintSystem;
 class SolutionApplicationTarget;
 
+using PrecheckedReturnStmts = std::vector<ReturnStmt *>;
+
 } // end namespace constraints
 
 // Forward declare some TypeChecker related functions
@@ -140,8 +142,10 @@ struct ResultBuilder {
 private:
   DeclContext *DC;
   /// An implicit variable that represents `Self` type of the result builder.
-  VarDecl *BuilderSelf;
-  Type BuilderType;
+  VarDecl *
+      BuilderSelf; // Angela: @ViewBuilder var body: Content -> var $builderSelf
+  Type
+      BuilderType; // Angela: @ViewBuilder var body: Content -> ViewBuilder.Type
 
   /// Cache of supported result builder operations.
   llvm::SmallDenseMap<DeclName, ResultBuilderOpSupport> SupportedOps;
@@ -1524,6 +1528,9 @@ public:
   llvm::MapVector<AnyFunctionRef, AppliedBuilderTransform>
       resultBuilderTransformed;
 
+  /// Cached prechecked bodies.
+  llvm::MapVector<AnyFunctionRef, BraceStmt *> precheckedClosureBodies;
+
   /// A map from argument expressions to their applied property wrapper expressions.
   llvm::MapVector<ASTNode, SmallVector<AppliedPropertyWrapper, 2>> appliedPropertyWrappers;
 
@@ -2858,12 +2865,9 @@ private:
   /// Cached member lookups.
   llvm::DenseMap<std::pair<Type, DeclNameRef>, Optional<LookupResult>>
     MemberLookups;
-  
+
   /// Cached prechecked bodies.
-  llvm::SetVector<BraceStmt*> PrecheckedClosureBodies;
-  
-  /// The overload sets that have been resolved along the current path.
-  // llvm::MapVector<BraceStmt *, SelectedOverload> PrecheckedBodies;
+  llvm::MapVector<AnyFunctionRef, BraceStmt *> precheckedClosureBodies;
 
   /// Folding set containing all of the locators used in this
   /// constraint system.
@@ -3424,6 +3428,12 @@ public:
   /// locator.
   ArgumentList *getArgumentList(ConstraintLocator *locator);
 
+  /// Check the cache of prechecked BraceStmts
+  ///
+  /// \param fn The function or closure expression
+  /// \returns a prechecked function or closure body
+  BraceStmt *getPrecheckedBody(AnyFunctionRef fn);
+
   /// Associate an argument list with a call at a given locator.
   void associateArgumentList(ConstraintLocator *locator, ArgumentList *args);
 
@@ -3503,6 +3513,9 @@ public:
     unsigned numFavoredConstraints;
 
     unsigned numResultBuilderTransformed;
+
+    /// The length of \c precheckedClosureBodies
+    unsigned numPrecheckedClosureBodies;
 
     /// The length of \c appliedPropertyWrappers
     unsigned numAppliedPropertyWrappers;
@@ -4670,6 +4683,13 @@ public:
   /// Determine if the type in question is an Array<T> and, if so, provide the
   /// element type of the array.
   static Optional<Type> isArrayType(Type type);
+
+  // using PrecheckedReturnStmts = std::vector<ReturnStmt *>;
+
+  // Precheck function ref bodies
+  PrecheckedReturnStmts precheckClosureBody(AnyFunctionRef fn, BraceStmt *body,
+                                            DeclContext *DC,
+                                            bool suppressDiagnostics);
 
   /// Determine whether the given type is a dictionary and, if so, provide the
   /// key and value types for the dictionary.

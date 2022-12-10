@@ -64,7 +64,7 @@ class BuilderTransformerBase {
 protected:
   ASTContext &ctx;
   DeclContext *dc;
-  ResultBuilder builder;
+  ResultBuilder builder; // this is the self type which is type of builder
 
 public:
   BuilderTransformerBase(ConstraintSystem *cs, DeclContext *dc,
@@ -2238,53 +2238,6 @@ Optional<BraceStmt *> TypeChecker::applyResultBuilderBodyTransform(
   // If we encountered an error or there was an explicit result type,
   // bail out and report that to the caller.
   auto &ctx = func->getASTContext();
-  auto request =
-      PreCheckResultBuilderRequest{{AnyFunctionRef(func),
-                                      /*SuppressDiagnostics=*/false}};
-  switch (evaluateOrDefault(ctx.evaluator, request,
-                            ResultBuilderBodyPreCheck::Error)) {
-  case ResultBuilderBodyPreCheck::Okay:
-    // If the pre-check was okay, apply the result-builder transform.
-    break;
-
-  case ResultBuilderBodyPreCheck::Error:
-    return nullptr;
-
-  case ResultBuilderBodyPreCheck::HasReturnStmt: {
-    // One or more explicit 'return' statements were encountered, which
-    // disables the result builder transform. Warn when we do this.
-    auto returnStmts = findReturnStatements(func);
-    assert(!returnStmts.empty());
-
-    ctx.Diags.diagnose(
-        returnStmts.front()->getReturnLoc(),
-        diag::result_builder_disabled_by_return_warn, builderType);
-
-    // Note that one can remove the result builder attribute.
-    auto attr = func->getAttachedResultBuilder();
-    if (!attr) {
-      if (auto accessor = dyn_cast<AccessorDecl>(func)) {
-        attr = accessor->getStorage()->getAttachedResultBuilder();
-      }
-    }
-
-    if (attr) {
-      diagnoseAndRemoveAttr(func, attr, diag::result_builder_remove_attr);
-    }
-
-    // Note that one can remove all of the return statements.
-    {
-      auto diag = ctx.Diags.diagnose(
-          returnStmts.front()->getReturnLoc(),
-          diag::result_builder_remove_returns);
-      for (auto returnStmt : returnStmts) {
-        diag.fixItRemove(returnStmt->getReturnLoc());
-      }
-    }
-
-    return None;
-  }
-  }
 
   ConstraintSystemOptions options = ConstraintSystemFlags::AllowFixes;
   auto resultInterfaceTy = func->getResultInterfaceType();
@@ -2316,6 +2269,7 @@ Optional<BraceStmt *> TypeChecker::applyResultBuilderBodyTransform(
   // of this decl; it's not part of the interface type.
   builderType = func->mapTypeIntoContext(builderType);
 
+  // we need to add prechecked bodies to the cache in matchResultBuilder
   if (auto result = cs.matchResultBuilder(
           func, builderType, resultContextType, resultConstraintKind,
           cs.getConstraintLocator(func->getBody()))) {
@@ -2418,47 +2372,7 @@ ConstraintSystem::matchResultBuilder(AnyFunctionRef fn, Type builderType,
     return getTypeMatchSuccess();
   }
 
-  // Pre-check the body: pre-check any expressions in it and look
-  // for return statements.
-  auto request =
-      PreCheckResultBuilderRequest{{fn, /*SuppressDiagnostics=*/false}};
-  switch (evaluateOrDefault(getASTContext().evaluator, request,
-                            ResultBuilderBodyPreCheck::Error)) {
-  case ResultBuilderBodyPreCheck::Okay:
-    // If the pre-check was okay, apply the result-builder transform.
-    break;
-
-  case ResultBuilderBodyPreCheck::Error: {
-    InvalidResultBuilderBodies.insert(fn);
-
-    if (!shouldAttemptFixes())
-      return getTypeMatchFailure(locator);
-
-    if (recordFix(IgnoreInvalidResultBuilderBody::create(
-            *this, getConstraintLocator(fn.getAbstractClosureExpr()))))
-      return getTypeMatchFailure(locator);
-
-    return getTypeMatchSuccess();
-  }
-
-  case ResultBuilderBodyPreCheck::HasReturnStmt:
-    // Diagnostic mode means that solver couldn't reach any viable
-    // solution, so let's diagnose presence of a `return` statement
-    // in the closure body.
-    if (shouldAttemptFixes()) {
-      if (recordFix(IgnoreResultBuilderWithReturnStmts::create(
-              *this, builderType,
-              getConstraintLocator(fn.getAbstractClosureExpr()))))
-        return getTypeMatchFailure(locator);
-
-      return getTypeMatchSuccess();
-    }
-
-    // If the body has a return statement, suppress the transform but
-    // continue solving the constraint system.
-    return None;
-  }
-
+  // Angela: Transform lives here
   if (Context.LangOpts.hasFeature(Feature::ResultBuilderASTTransform)) {
     auto transformedBody = getBuilderTransformedBody(fn, builder);
     // If this builder transform has not yet been applied to this function,
@@ -2505,8 +2419,9 @@ ConstraintSystem::matchResultBuilder(AnyFunctionRef fn, Type builderType,
 
       transformedBody = std::make_pair(transform.getBuilderSelf(), body);
       // Record the transformation so it could be re-used if needed.
-      setBuilderTransformedBody(fn, builder, transformedBody->first,
-                                transformedBody->second);
+      setBuilderTransformedBody(fn, builder,
+                                transformedBody->first /* builderSelf */,
+                                transformedBody->second /* brace statement */);
     }
 
     // Set the type of `$__builderSelf` variable before constraint generation.
@@ -2522,9 +2437,13 @@ ConstraintSystem::matchResultBuilder(AnyFunctionRef fn, Type builderType,
 
     AppliedBuilderTransform transformInfo;
 
-    transformInfo.builderType = builderType;
+    transformInfo.builderType =
+        builderType; // add transformedBody->first(builderself to transformInfo)
     transformInfo.bodyResultType = bodyResultType;
     transformInfo.transformedBody = transformedBody->second;
+
+    // TO-DO Angela: If name lookup of Group return results, copy  change to
+    // $builderSelf.Group.init
 
     // Record the transformation.
     assert(
@@ -2541,6 +2460,48 @@ ConstraintSystem::matchResultBuilder(AnyFunctionRef fn, Type builderType,
       return getTypeMatchFailure(locator);
 
     return getTypeMatchSuccess();
+  } else {
+    // Only precheck if ResultBuilderASTTransform is not enabled
+    // Pre-check the body: pre-check any expressions in it and look
+    // for return statements.
+    auto request =
+        PreCheckResultBuilderRequest{{fn, /*SuppressDiagnostics=*/false}};
+    switch (evaluateOrDefault(getASTContext().evaluator, request,
+                              ResultBuilderBodyPreCheck::Error)) {
+    case ResultBuilderBodyPreCheck::Okay:
+      // If the pre-check was okay, apply the result-builder transform.
+      break;
+
+    case ResultBuilderBodyPreCheck::Error: {
+      InvalidResultBuilderBodies.insert(fn);
+
+      if (!shouldAttemptFixes())
+        return getTypeMatchFailure(locator);
+
+      if (recordFix(IgnoreInvalidResultBuilderBody::create(
+              *this, getConstraintLocator(fn.getAbstractClosureExpr()))))
+        return getTypeMatchFailure(locator);
+
+      return getTypeMatchSuccess();
+    }
+
+    case ResultBuilderBodyPreCheck::HasReturnStmt:
+      // Diagnostic mode means that solver couldn't reach any viable
+      // solution, so let's diagnose presence of a `return` statement
+      // in the closure body.
+      if (shouldAttemptFixes()) {
+        if (recordFix(IgnoreResultBuilderWithReturnStmts::create(
+                *this, builderType,
+                getConstraintLocator(fn.getAbstractClosureExpr()))))
+          return getTypeMatchFailure(locator);
+
+        return getTypeMatchSuccess();
+      }
+
+      // If the body has a return statement, suppress the transform but
+      // continue solving the constraint system.
+      return None;
+    }
   }
 
   // Check the form of this body to see if we can apply the
@@ -2729,7 +2690,6 @@ public:
           return hasError ? nullptr : expr;
         }
       }
-
       return expr;
     });
 

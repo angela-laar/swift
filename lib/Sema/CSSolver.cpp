@@ -195,6 +195,10 @@ Solution ConstraintSystem::finalize() {
     solution.resultBuilderTransformed.insert(transformed);
   }
 
+  for (const auto &prechecked : precheckedClosureBodies) {
+    precheckedClosureBodies.insert(prechecked);
+  }
+
   for (const auto &appliedWrapper : appliedPropertyWrappers) {
     solution.appliedPropertyWrappers.insert(appliedWrapper);
   }
@@ -311,6 +315,10 @@ void ConstraintSystem::applySolution(const Solution &solution) {
 
   for (const auto &transformed : solution.resultBuilderTransformed) {
     resultBuilderTransformed.insert(transformed);
+  }
+
+  for (const auto &prechecked : solution.precheckedClosureBodies) {
+    precheckedClosureBodies.insert(prechecked);
   }
 
   for (const auto &appliedWrapper : solution.appliedPropertyWrappers) {
@@ -591,6 +599,7 @@ ConstraintSystem::SolverScope::SolverScope(ConstraintSystem &cs)
   numDisabledConstraints = cs.solverState->getNumDisabledConstraints();
   numFavoredConstraints = cs.solverState->getNumFavoredConstraints();
   numResultBuilderTransformed = cs.resultBuilderTransformed.size();
+  numPrecheckedClosureBodies = cs.precheckedClosureBodies.size();
   numAppliedPropertyWrappers = cs.appliedPropertyWrappers.size();
   numResolvedOverloads = cs.ResolvedOverloads.size();
   numInferredClosureTypes = cs.ClosureTypes.size();
@@ -691,6 +700,9 @@ ConstraintSystem::SolverScope::~SolverScope() {
 
   /// Remove any builder transformed closures.
   truncate(cs.resultBuilderTransformed, numResultBuilderTransformed);
+
+  // Remove any prechecked closure bodies
+  truncate(cs.precheckedClosureBodies, numPrecheckedClosureBodies);
 
   // Remove any applied property wrappers.
   truncate(cs.appliedPropertyWrappers, numAppliedPropertyWrappers);

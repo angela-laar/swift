@@ -1158,6 +1158,99 @@ private:
 };
 }
 
+PrecheckedReturnStmts
+ConstraintSystem::precheckClosureBody(AnyFunctionRef fn, BraceStmt *body,
+                                      DeclContext *DC,
+                                      bool suppressDiagnostics) {
+  class PreCheckClosureBody : public ASTWalker {
+    DeclContext *DC;
+    PrecheckedReturnStmts &ReturnStmts;
+    bool SuppressDiagnostics = false;
+    bool HasError = false;
+
+  public:
+    PreCheckClosureBody(DeclContext *DC, PrecheckedReturnStmts &returnStmts,
+                        bool suppressDiagnostics)
+        : DC(DC), ReturnStmts(returnStmts),
+          SuppressDiagnostics(suppressDiagnostics) {}
+
+    PreWalkResult<Expr *> walkToExprPre(Expr *E) override {
+      if (isa<ClosureExpr>(E))
+        return Action::SkipChildren(E);
+
+      auto &diagEngine = DC->getASTContext().Diags;
+
+      // Suppress any diagnostics which could be produced by this expression.
+      DiagnosticTransaction transaction(diagEngine);
+
+      HasError |=
+          preCheckExpression(E, DC, /*replaceInvalidRefsWithErrors=*/true,
+                             /*leaveClosureBodiesUnchecked=*/false);
+
+      HasError |= transaction.hasErrors();
+
+      if (!HasError)
+        HasError |= containsErrorExpr(E);
+
+      if (SuppressDiagnostics)
+        transaction.abort();
+
+      if (HasError)
+        return Action::Stop();
+
+      return Action::SkipChildren(E);
+    }
+
+    PreWalkResult<Stmt *> walkToStmtPre(Stmt *S) override {
+      // If we see a return statement, note it..
+      if (auto returnStmt = dyn_cast<ReturnStmt>(S)) {
+        if (!returnStmt->isImplicit()) {
+          ReturnStmts.push_back(returnStmt);
+          return Action::SkipChildren(S);
+        }
+      }
+      return Action::Continue(S);
+    }
+
+    /// Ignore patterns.
+    PreWalkResult<Pattern *> walkToPatternPre(Pattern *pat) override {
+      return Action::SkipChildren(pat);
+    }
+
+    /// Check whether given expression (including single-statement
+    /// closures) contains `ErrorExpr` as one of its sub-expressions.
+    bool containsErrorExpr(Expr *expr) {
+      bool hasError = false;
+
+      expr->forEachChildExpr([&](Expr *expr) -> Expr * {
+        hasError |= isa<ErrorExpr>(expr);
+        if (hasError)
+          return nullptr;
+
+        if (auto *closure = dyn_cast<ClosureExpr>(expr)) {
+          if (closure->hasSingleExpressionBody()) {
+            hasError |= containsErrorExpr(closure->getSingleExpressionBody());
+            return hasError ? nullptr : expr;
+          }
+        }
+        return expr;
+      });
+      return hasError;
+    }
+  };
+
+  PrecheckedReturnStmts returnStmts;
+
+  if (auto *closure = dyn_cast<ClosureExpr>(fn.getAbstractClosureExpr())) {
+    body->walk(PreCheckClosureBody(closure, returnStmts, false));
+    // closure->setBody(body, closure->hasSingleExpressionBody());
+  } else if (auto *funcdecl = fn.getAbstractFunctionDecl()) {
+    body->walk(PreCheckClosureBody(funcdecl, returnStmts, false));
+  }
+
+  return returnStmts;
+}
+
 bool ConstraintSystem::generateConstraints(AnyFunctionRef fn, BraceStmt *body) {
   NullablePtr<ConstraintLocator> locator;
 
@@ -1169,56 +1262,31 @@ bool ConstraintSystem::generateConstraints(AnyFunctionRef fn, BraceStmt *body) {
 
   SyntacticElementConstraintGenerator generator(
       *this, SyntacticElementContext::forFunctionRef(fn), locator.get());
-  
-  class PreCheckClosureBody : public ASTWalker {
-    DeclContext *DC;
-    bool HadErrors = false;
-    std::vector<ReturnStmt *> ReturnStmts;
 
-  public:
-    PreCheckClosureBody(DeclContext *DC) : DC(DC) {}
-
-    PreWalkResult<Expr *> walkToExprPre(Expr *E) override {
-      if (isa<ClosureExpr>(E))
-        return Action::SkipChildren(E);
-
-      HadErrors |=
-          preCheckExpression(E, DC, /*replaceInvalidRefsWithErrors=*/true,
-                             /*leaveClosureBodiesUnchecked=*/false);
-
-      return Action::SkipChildren(E);
-    }
-//    PreWalkResult<Stmt *> walkToStmtPre(Stmt *S) override {
-//      // If we see a return statement, note it..
-//      if (auto returnStmt = dyn_cast<ReturnStmt>(S)) {
-//        if (!returnStmt->isImplicit()) {
-//          ReturnStmts.push_back(returnStmt);
-//          return Action::SkipChildren(S);
-//        }
-//      }
-//      return Action::Continue(S);
-//    }
-    
-    /// Ignore patterns.
-    PreWalkResult<Pattern *> walkToPatternPre(Pattern *pat) override {
-      return Action::SkipChildren(pat);
-    }
-    
-  };
-
-  if (auto *closure = dyn_cast<ClosureExpr>(fn.getAbstractClosureExpr())) {
-    if (PrecheckedClosureBodies.contains(closure)){
-      body->walk(PreCheckClosureBody(closure));
-      
-      closure->setBody(body, closure->hasSingleExpressionBody());
-      
-      body->dump();
-    }
+  if (auto prechecked = getPrecheckedBody(fn)) {
+    generator.visit(body);
+  } else {
+    auto returnStmt = precheckClosureBody(fn, body, DC, false);
+    // closure->setBody(body, closure->hasSingleExpressionBody());
+    // body->dump();
+    generator.visit(body);
+    assert(std::find_if(
+               precheckedClosureBodies.begin(), precheckedClosureBodies.end(),
+               [&](const std::pair<AnyFunctionRef, BraceStmt *> &entry) {
+                 return entry.first == fn;
+               }) == precheckedClosureBodies.end() &&
+           "This bracestament has already been prechecked!");
+    precheckedClosureBodies.insert(std::make_pair(fn, std::move(body)));
   }
 
-  generator.visit(body);
-
   return generator.hadError;
+}
+
+BraceStmt *ConstraintSystem::getPrecheckedBody(AnyFunctionRef fn) {
+  auto known = precheckedClosureBodies.find(fn);
+  if (known != precheckedClosureBodies.end())
+    return known->second;
+  return nullptr;
 }
 
 bool ConstraintSystem::isInResultBuilderContext(ClosureExpr *closure) const {
