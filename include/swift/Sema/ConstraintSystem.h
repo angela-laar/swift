@@ -140,8 +140,8 @@ struct ResultBuilder {
 private:
   DeclContext *DC;
   /// An implicit variable that represents `Self` type of the result builder.
-  VarDecl *BuilderSelf;
-  Type BuilderType;
+  VarDecl *BuilderSelf; // TO-DO: @ViewBuilder var body: Content -> var $builderSelf
+  Type BuilderType; // TO-DO: @ViewBuilder var body: Content -> ViewBuilder.Type
 
   /// Cache of supported result builder operations.
   llvm::SmallDenseMap<DeclName, ResultBuilderOpSupport> SupportedOps;
@@ -2860,10 +2860,7 @@ private:
     MemberLookups;
   
   /// Cached prechecked bodies.
-  llvm::SetVector<BraceStmt*> PrecheckedClosureBodies;
-  
-  /// The overload sets that have been resolved along the current path.
-  // llvm::MapVector<BraceStmt *, SelectedOverload> PrecheckedBodies;
+  llvm::MapVector<AnyFunctionRef,BraceStmt *> PrecheckedClosureBodies;
 
   /// Folding set containing all of the locators used in this
   /// constraint system.
@@ -3423,6 +3420,12 @@ public:
   /// Retrieve the argument list that is associated with a call at the given
   /// locator.
   ArgumentList *getArgumentList(ConstraintLocator *locator);
+  
+  /// Check the cache of prechecked BraceStmts
+  ///
+  /// \param fn The function or closure expression
+  /// \returns a prechecked function or closure body
+  BraceStmt *getPrecheckedBody (AnyFunctionRef fn);
 
   /// Associate an argument list with a call at a given locator.
   void associateArgumentList(ConstraintLocator *locator, ArgumentList *args);

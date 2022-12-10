@@ -64,7 +64,7 @@ class BuilderTransformerBase {
 protected:
   ASTContext &ctx;
   DeclContext *dc;
-  ResultBuilder builder;
+  ResultBuilder builder; //this is the self type which is type of builder
 
 public:
   BuilderTransformerBase(ConstraintSystem *cs, DeclContext *dc,
@@ -2316,6 +2316,8 @@ Optional<BraceStmt *> TypeChecker::applyResultBuilderBodyTransform(
   // of this decl; it's not part of the interface type.
   builderType = func->mapTypeIntoContext(builderType);
 
+// TO-DO: second place to remove precheck is in the above code
+// we need to add prechecked bodies to the cache in matchResultBuilder
   if (auto result = cs.matchResultBuilder(
           func, builderType, resultContextType, resultConstraintKind,
           cs.getConstraintLocator(func->getBody()))) {
@@ -2458,7 +2460,7 @@ ConstraintSystem::matchResultBuilder(AnyFunctionRef fn, Type builderType,
     // continue solving the constraint system.
     return None;
   }
-
+  // TO-DO: Transform lives here; to-do: remove precheck starting line 2425
   if (Context.LangOpts.hasFeature(Feature::ResultBuilderASTTransform)) {
     auto transformedBody = getBuilderTransformedBody(fn, builder);
     // If this builder transform has not yet been applied to this function,

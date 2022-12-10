@@ -1185,19 +1185,19 @@ bool ConstraintSystem::generateConstraints(AnyFunctionRef fn, BraceStmt *body) {
       HadErrors |=
           preCheckExpression(E, DC, /*replaceInvalidRefsWithErrors=*/true,
                              /*leaveClosureBodiesUnchecked=*/false);
-
+      
       return Action::SkipChildren(E);
     }
-//    PreWalkResult<Stmt *> walkToStmtPre(Stmt *S) override {
-//      // If we see a return statement, note it..
-//      if (auto returnStmt = dyn_cast<ReturnStmt>(S)) {
-//        if (!returnStmt->isImplicit()) {
-//          ReturnStmts.push_back(returnStmt);
-//          return Action::SkipChildren(S);
-//        }
-//      }
-//      return Action::Continue(S);
-//    }
+    PreWalkResult<Stmt *> walkToStmtPre(Stmt *S) override {
+      // If we see a return statement, note it..
+      if (auto returnStmt = dyn_cast<ReturnStmt>(S)) {
+        if (!returnStmt->isImplicit()) {
+          ReturnStmts.push_back(returnStmt);
+          return Action::SkipChildren(S);
+        }
+      }
+      return Action::Continue(S);
+    }
     
     /// Ignore patterns.
     PreWalkResult<Pattern *> walkToPatternPre(Pattern *pat) override {
@@ -1207,18 +1207,23 @@ bool ConstraintSystem::generateConstraints(AnyFunctionRef fn, BraceStmt *body) {
   };
 
   if (auto *closure = dyn_cast<ClosureExpr>(fn.getAbstractClosureExpr())) {
-    if (PrecheckedClosureBodies.contains(closure)){
+    if (auto prechecked = getPrecheckedBody(fn)){
+      generator.visit(body);
+    } else {
       body->walk(PreCheckClosureBody(closure));
-      
       closure->setBody(body, closure->hasSingleExpressionBody());
-      
       body->dump();
+      generator.visit(body);
     }
   }
-
-  generator.visit(body);
-
   return generator.hadError;
+}
+
+BraceStmt *ConstraintSystem::getPrecheckedBody(AnyFunctionRef fn) {
+  auto known = PrecheckedClosureBodies.find(fn);
+  if (known != PrecheckedClosureBodies.end())
+    return known->second;
+  return nullptr;
 }
 
 bool ConstraintSystem::isInResultBuilderContext(ClosureExpr *closure) const {
