@@ -1206,7 +1206,6 @@ ConstraintSystem::precheckClosureBody(AnyFunctionRef fn, BraceStmt *body,
       if (auto returnStmt = dyn_cast<ReturnStmt>(S)) {
         if (!returnStmt->isImplicit()) {
           ReturnStmts.push_back(returnStmt);
-          return Action::SkipChildren(S);
         }
       }
       return Action::Continue(S);
