@@ -1266,18 +1266,9 @@ bool ConstraintSystem::generateConstraints(AnyFunctionRef fn, BraceStmt *body) {
     generator.visit(body);
   } else {
     auto returnStmt = precheckClosureBody(fn, body, DC, false);
-    // closure->setBody(body, closure->hasSingleExpressionBody());
-    // body->dump();
     generator.visit(body);
-    assert(std::find_if(
-               precheckedClosureBodies.begin(), precheckedClosureBodies.end(),
-               [&](const std::pair<AnyFunctionRef, BraceStmt *> &entry) {
-                 return entry.first == fn;
-               }) == precheckedClosureBodies.end() &&
-           "This bracestament has already been prechecked!");
     precheckedClosureBodies.insert(std::make_pair(fn, std::move(body)));
   }
-
   return generator.hadError;
 }
 
