@@ -59,6 +59,7 @@ class Expr;
 class FuncDecl;
 class BraseStmt;
 enum class TypeCheckExprFlags;
+enum class TypeResolverContext : uint8_t;
 
 namespace constraints {
 
@@ -967,7 +968,7 @@ enum ScoreKind: unsigned int {
 /// The number of score kinds.
 const unsigned NumScoreKinds = SK_LastScoreKind + 1;
 
-/// Describes what happened when a result builder transform was applied
+/// Descr*ibes what happened when a result builder transform was applied
 /// to a particular closure.
 struct AppliedBuilderTransform {
   /// The builder type that was applied to the closure.
@@ -4725,6 +4726,17 @@ public:
   /// \returns The converted type.
   Type replaceInferableTypesWithTypeVars(Type type,
                                          ConstraintLocatorBuilder locator);
+
+  /// Replace type representation type instance. Unbound generic
+  /// types with bound generic types whose generic args are fresh type
+  /// variables.
+  ///
+  /// \param repr The type repr on which to compute the instance.
+  ///
+  /// \returns The converted type.
+  Type
+  resolveTypeReferenceInExpression(TypeRepr *repr, TypeResolverContext resCtx,
+                                   const ConstraintLocatorBuilder &locator);
 
   /// "Open" the given type by replacing any occurrences of generic
   /// parameter types and dependent member types with fresh type variables.

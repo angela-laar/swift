@@ -868,6 +868,32 @@ static void checkNestedTypeConstraints(ConstraintSystem &cs, Type type,
   checkNestedTypeConstraints(cs, parentTy, locator);
 }
 
+Type ConstraintSystem::resolveTypeReferenceInExpression(
+    TypeRepr *repr, TypeResolverContext resCtx,
+    const ConstraintLocatorBuilder &locator) {
+
+  // Introduce type variables for unbound generics.
+  const auto genericOpener = OpenUnboundGenericType(*this, locator);
+
+  const auto placeholderHandler = HandlePlaceholderType(*this, locator);
+
+  const auto result = TypeResolution::resolveContextualType(
+      repr, DC, resCtx, genericOpener, placeholderHandler);
+
+  if (result->hasError()) {
+    recordFix(
+        IgnoreInvalidASTNode::create(*this, getConstraintLocator(locator)));
+
+    return createTypeVariable(getConstraintLocator(repr), TVO_CanBindToHole);
+  }
+  // Diagnose top-level usages of placeholder types.
+  if (isa<PlaceholderTypeRepr>(repr->getWithoutParens())) {
+    getASTContext().Diags.diagnose(repr->getLoc(),
+                                   diag::placeholder_type_not_allowed);
+  }
+  return result;
+}
+
 Type ConstraintSystem::replaceInferableTypesWithTypeVars(
     Type type, ConstraintLocatorBuilder locator) {
   if (!type->hasUnboundGenericType() && !type->hasPlaceholder())

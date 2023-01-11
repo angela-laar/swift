@@ -16,9 +16,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "MiscDiagnostics.h"
-#include "TypeChecker.h"
 #include "TypeCheckAvailability.h"
-#include "swift/Sema/IDETypeChecking.h"
+#include "TypeCheckType.h"
+#include "TypeChecker.h"
 #include "swift/AST/ASTPrinter.h"
 #include "swift/AST/ASTVisitor.h"
 #include "swift/AST/ASTWalker.h"
@@ -27,14 +27,15 @@
 #include "swift/AST/ParameterList.h"
 #include "swift/AST/TypeCheckRequests.h"
 #include "swift/Sema/ConstraintSystem.h"
+#include "swift/Sema/IDETypeChecking.h"
 #include "swift/Sema/SolutionResult.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include <iterator>
 #include <map>
 #include <memory>
-#include <utility>
 #include <tuple>
+#include <utility>
 
 using namespace swift;
 using namespace constraints;
@@ -64,12 +65,14 @@ class BuilderTransformerBase {
 protected:
   ASTContext &ctx;
   DeclContext *dc;
+  ConstraintSystem *cs;
   ResultBuilder builder;
 
 public:
   BuilderTransformerBase(ConstraintSystem *cs, DeclContext *dc,
                          Type builderType)
-      : ctx(dc->getASTContext()), dc(dc), builder(cs, dc, builderType) {}
+      : ctx(dc->getASTContext()), dc(dc), cs(cs), builder(cs, dc, builderType) {
+  }
 
   virtual ~BuilderTransformerBase() {}
 
@@ -1000,6 +1003,49 @@ protected:
     return failTransform(stmt);                                                \
   }
 
+  bool hasBuilderRef(ResultBuilder &builder, ConstraintSystem &cs, Expr *expr) {
+
+    class BuilderTypeRewriter : public ASTWalker {
+      ConstraintSystem &cs;
+      ResultBuilder &builder;
+
+    public:
+      BuilderTypeRewriter(ConstraintSystem &cs, ResultBuilder &builder)
+          : cs(cs), builder(builder) {}
+
+      virtual PreWalkAction walkToDeclPre(Decl *D) override {
+       // We don't want to look inside decls.
+       return Action::SkipChildren();
+      }
+
+      virtual PreWalkResult<Expr *> walkToExprPre(Expr *E) override {
+       if (auto typeExpr = dyn_cast<TypeExpr>(E)) {
+          // type could also be implicit, check for that
+          if (auto type = cs.resolveTypeReferenceInExpression(
+                  typeExpr->getTypeRepr(), TypeResolverContext::InExpression,
+                  cs.getConstraintLocator(typeExpr))) {
+            auto name = type->getAnyNominal()->getName();
+            auto foundTypes =
+                builder.getType()->getAnyNominal()->lookupDirect(name);
+            if (foundTypes.size() != 1)
+              return Action::Continue(E);
+            if (auto typeDecl = dyn_cast<TypeDecl>(foundTypes.front())) {
+              auto *replacement = TypeExpr::createImplicitHack(
+                  typeExpr->getLoc(), typeDecl->getDeclaredInterfaceType(),
+                  cs.getASTContext());
+              return Action::Continue(replacement);
+            } // TO-DO: After in-place replacement of unqualifed type expr,
+              // clone AST node
+          }
+       }
+       return Action::Continue(E);
+      }
+    };
+
+    expr->walk(BuilderTypeRewriter(cs, builder));
+    return true;
+  }
+
   /// Visit the element of a brace statement, returning \c None if the element
   /// was transformed successfully, or an unsupported element if the element
   /// cannot be handled.
@@ -1057,6 +1103,11 @@ protected:
       expr = builder.buildCall(expr->getLoc(), ctx.Id_buildExpression, {expr},
                                {Identifier()});
     }
+
+    // The expr in the ResultBuilderTransform is a TypeExpr, let's
+    // replace it with an implicit type expr that
+    // is scoped to the the result builder itself (member ref expr)
+    auto foundType = hasBuilderRef(builder, *cs, expr);
 
     auto *capture = captureExpr(expr, newBody);
     // A reference to the synthesized variable is passed as an argument
