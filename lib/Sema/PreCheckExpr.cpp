@@ -652,7 +652,7 @@ Expr *TypeChecker::resolveDeclRefExpr(UnresolvedDeclRefExpr *UDRE,
             Name.isOperator(), typo->CorrectedName.getBaseIdentifier().str());
         diag.highlight(UDRE->getSourceRange());
         typo->addFixits(diag);
-      } else {
+      } else if (replaceInvalidRefsWithErrors) {
         emitBasicError();
       }
 

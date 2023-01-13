@@ -1020,7 +1020,6 @@ protected:
 
       virtual PreWalkResult<Expr *> walkToExprPre(Expr *E) override {
        if (auto typeExpr = dyn_cast<TypeExpr>(E)) {
-          // type could also be implicit, check for that
           if (auto type = cs.resolveTypeReferenceInExpression(
                   typeExpr->getTypeRepr(), TypeResolverContext::InExpression,
                   cs.getConstraintLocator(typeExpr))) {
@@ -1034,8 +1033,19 @@ protected:
                   typeExpr->getLoc(), typeDecl->getDeclaredInterfaceType(),
                   cs.getASTContext());
               return Action::Continue(replacement);
-            } // TO-DO: After in-place replacement of unqualifed type expr,
-              // clone AST node
+            }
+          }
+       } else if (auto unresolvedExpr = dyn_cast<UnresolvedDeclRefExpr>(E)) {
+          auto name = unresolvedExpr->getName().getFullName();
+          auto foundTypes =
+              builder.getType()->getAnyNominal()->lookupDirect(name);
+          if (foundTypes.size() != 1)
+            return Action::Continue(E);
+          if (auto typeDecl = dyn_cast<TypeDecl>(foundTypes.front())) {
+            auto *replacement = TypeExpr::createImplicitHack(
+                unresolvedExpr->getLoc(), typeDecl->getDeclaredInterfaceType(),
+                cs.getASTContext());
+            return Action::Continue(replacement);
           }
        }
        return Action::Continue(E);
@@ -2734,7 +2744,7 @@ public:
       DiagnosticTransaction transaction(diagEngine);
 
       HasError |= ConstraintSystem::preCheckExpression(
-          E, DC, /*replaceInvalidRefsWithErrors=*/true,
+          E, DC, /*replaceInvalidRefsWithErrors=*/false,
           /*leaveClosureBodiesUnchecked=*/false);
 
       HasError |= transaction.hasErrors();

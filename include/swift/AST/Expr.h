@@ -395,6 +395,9 @@ public:
   /// getType - Return the type of this expression.
   Type getType() const { return Ty; }
 
+  /// Clone any expr
+  // virtual Expr * clone() { return nullptr; }
+
   /// setType - Sets the type of this expression.
   void setType(Type T);
 

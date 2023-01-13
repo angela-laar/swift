@@ -85,6 +85,8 @@ namespace swift {
     /// Whether the AST node is implicit.
     bool isImplicit() const;
 
+    // ASTNode clone(const ASTContext &Ctx, ASTNode N, Expr expr);
+
     friend llvm::hash_code hash_value(ASTNode N) {
       return llvm::hash_value(N.getOpaqueValue());
     }
