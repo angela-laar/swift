@@ -3129,6 +3129,22 @@ namespace {
         if (diagnoseReferenceToUnsafeGlobal(decl, loc))
           return true;
 
+        if(auto funcdecl = dyn_cast<FuncDecl>(decl)){
+          // Mark with @Sendable attribute implicitly if type is Sendable
+          if (Type type = funcdecl->getInterfaceType()) {
+            bool hasSendable = type.findIf([](Type type) {
+              if (auto fnType = type->getAs<AnyFunctionType>()) {
+                if (fnType->isSendable())
+                  return true;
+              }
+
+              return false;
+            });
+
+            if (hasSendable)
+              funcdecl->getAttrs().add(new (ctx) SendableAttr(true));
+          }
+        }
         return false;
 
       case ActorReferenceResult::ExitsActorToNonisolated:

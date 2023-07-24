@@ -3045,13 +3045,13 @@ ConstraintSystem::matchFunctionTypes(FunctionType *func1, FunctionType *func2,
   }
 
   // A @Sendable function can be a subtype of a non-@Sendable function.
-  if (func1->isSendable() != func2->isSendable()) {
-    // Cannot add '@Sendable'.
-    if (func2->isSendable() || kind < ConstraintKind::Subtype) {
-      if (AddSendableAttribute::attempt(*this, kind, func1, func2, locator))
-        return getTypeMatchFailure(locator);
-    }
-  }
+//  if (func1->isSendable() != func2->isSendable()) {
+//    // Cannot add '@Sendable'.
+//    if (func2->isSendable() || kind < ConstraintKind::Subtype) {
+//      if (AddSendableAttribute::attempt(*this, kind, func1, func2, locator))
+//        return getTypeMatchFailure(locator);
+//    }
+//  }
 
   // A non-@noescape function type can be a subtype of a @noescape function
   // type.
