@@ -1820,9 +1820,10 @@ Type swift::findOriginalValueType(Expr *expr) {
 
 bool swift::diagnoseApplyArgSendability(ApplyExpr *apply, const DeclContext *declContext) {
   auto isolationCrossing = apply->getIsolationCrossing();
-  if (!isolationCrossing.has_value())
-    return false;
-
+//  if (!isolationCrossing.has_value())
+//    return false;
+  
+  ASTContext &ctx = declContext->getASTContext();
   auto fnExprType = apply->getFn()->getType();
   if (!fnExprType)
     return false;
@@ -1834,21 +1835,35 @@ bool swift::diagnoseApplyArgSendability(ApplyExpr *apply, const DeclContext *dec
   auto params = fnType->getParams();
   for (unsigned paramIdx : indices(params)) {
     const auto &param = params[paramIdx];
-
+    
     // Dig out the location of the argument.
     SourceLoc argLoc = apply->getLoc();
     Type argType;
+    Identifier argName;
     if (auto argList = apply->getArgs()) {
       auto arg = argList->get(paramIdx);
       if (arg.getStartLoc().isValid())
-          argLoc = arg.getStartLoc();
-
+        argLoc = arg.getStartLoc();
+      
       // Determine the type of the argument, ignoring any implicit
       // conversions that could have stripped sendability.
       if (Expr *argExpr = arg.getExpr()) {
-          argType = findOriginalValueType(argExpr);
+        argType = findOriginalValueType(argExpr);
+          // compare actual arg type to expected param type
+          auto argFnTy = argType->getAs<AnyFunctionType>();
+          auto paramFnTy = param.getParameterType()->getAs<AnyFunctionType>();
+          
+          if (argFnTy && paramFnTy) {
+            if(argFnTy->isSendable() !=  paramFnTy->isSendable()){
+              ctx.Diags.diagnose(argLoc, diag::passing_noattrfunc_to_attrfunc, 1, Identifier());
+              ctx.Diags.diagnose(argLoc, diag::noescape_parameter, 1, Identifier());
+            }
+          }
       }
-    }
+  }
+    
+    if (!isolationCrossing.has_value())
+      return false;
 
     if (diagnoseNonSendableTypes(
             argType ? argType : param.getParameterType(),
@@ -2246,6 +2261,8 @@ namespace {
       }
 
       if (auto apply = dyn_cast<ApplyExpr>(expr)) {
+        // Do sendable partial apply function checks in here
+      
         // If this is a call to a partial apply thunk, decompose it to check it
         // like based on the original written syntax, e.g., "self.method".
         if (auto partialApply = decomposePartialApplyThunk(
@@ -2857,6 +2874,12 @@ namespace {
           getContextIsolation().isActorIsolated())
         unsatisfiedIsolation = ActorIsolation::forIndependent();
 
+      // check if language features ask us to defer sendable diagnostics
+      // if so, don't check for sendability of arguments here
+      if (!ctx.LangOpts.hasFeature(Feature::DeferredSendableChecking)) {
+        diagnoseApplyArgSendability(apply, getDeclContext());
+      }
+      
       // If there was no unsatisfied actor isolation, we're done.
       if (!unsatisfiedIsolation)
         return false;
@@ -2948,6 +2971,17 @@ namespace {
 
       return knownContexts->second.back();
     }
+    
+    static bool hasSendable(Type t) {
+      bool sendable = t.findIf([](Type type) {
+        if (auto fnType = type->getAs<AnyFunctionType>()) {
+          if (fnType->isSendable())
+            return true;
+        }
+        return false;
+      });
+      return sendable;
+    }
 
     /// Check a reference to a local capture.
     bool checkLocalCapture(
@@ -2956,9 +2990,22 @@ namespace {
 
       // Check whether we are in a context that will not execute concurrently
       // with the context of 'self'. If not, it's safe.
-      if (!mayExecuteConcurrentlyWith(
-              getDeclContext(), findCapturedDeclContext(value)))
-        return false;
+      if (!mayExecuteConcurrentlyWith(getDeclContext(), findCapturedDeclContext(value))){
+        bool unsafe = false;
+                                        
+        Expr* callee = applyStack.back()->getFn();
+        if (auto calleefn = callee->getType()->getAs<AnyFunctionType>())
+          if (calleefn->isSendable()){
+            // check if local capture is sendable too
+            if (Type type = value->getInterfaceType()){
+              if (hasSendable(type))
+                value->getAttrs().add(new (ctx) SendableAttr(true));
+//              else
+//                ctx.Diags.diagnose(loc, diag::passing_noattrfunc_to_attrfunc, 1, Identifier());
+            }
+        }
+        return unsafe;
+      }
 
       // Check whether this is a local variable, in which case we can
       // determine whether it was safe to access concurrently.
@@ -2987,6 +3034,7 @@ namespace {
               ctx.Diags.diagnose(loc, diag::concurrent_access_of_inout_param, param->getName());
               return true;
           }
+          
         }
 
         // Otherwise, we have concurrent access. Complain.

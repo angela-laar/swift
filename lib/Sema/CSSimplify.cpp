@@ -3052,7 +3052,6 @@ ConstraintSystem::matchFunctionTypes(FunctionType *func1, FunctionType *func2,
 //        return getTypeMatchFailure(locator);
 //    }
 //  }
-
   // A non-@noescape function type can be a subtype of a @noescape function
   // type.
   if (func1->isNoEscape() != func2->isNoEscape() &&
