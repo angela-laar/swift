@@ -122,6 +122,7 @@ UPCOMING_FEATURE(DisableOutwardActorInference, 401, 6)
 UPCOMING_FEATURE(InternalImportsByDefault, 409, 6)
 UPCOMING_FEATURE(GlobalConcurrency, 412, 6)
 UPCOMING_FEATURE(FullTypedThrows, 413, 6)
+UPCOMING_FEATURE(InferSendableFromCaptures, 418, 6)
 
 UPCOMING_FEATURE(ExistentialAny, 335, 7)
 
@@ -250,10 +251,6 @@ EXPERIMENTAL_FEATURE(NonescapableTypes, false)
 /// Enable the `@_extern` attribute.
 EXPERIMENTAL_FEATURE(Extern, true)
 
-// Infer Sendability of unapplied and partial applied methods,
-// global functions and key paths.
-EXPERIMENTAL_FEATURE(InferSendableFromCaptures, false)
-
 /// Enable the `@_staticExclusiveOnly` attribute.
 EXPERIMENTAL_FEATURE(StaticExclusiveOnly, true)
 
@@ -266,7 +263,7 @@ EXPERIMENTAL_FEATURE(BitwiseCopyable, true)
 /// Enables the FixedArray data type.
 EXPERIMENTAL_FEATURE(FixedArrays, true)
 
-// Group Main Actor Isolation Errors by Scope
+/// Group Main Actor Isolation Errors by Scope
 EXPERIMENTAL_FEATURE(GroupActorErrors, true)
 
 // Allow for the 'transferring' keyword to be applied to arguments and results.
