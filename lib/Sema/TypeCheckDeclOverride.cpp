@@ -1263,7 +1263,13 @@ bool OverrideMatcher::checkOverride(ValueDecl *baseDecl,
     CanType parentPropertyCanTy =
       parentPropertyTy->getReducedType(
         decl->getInnermostDeclContext()->getGenericSignatureOfContext());
-    if (!propertyTy->matches(parentPropertyCanTy,
+    // If @preconcurrency, strip concurrency from decl before matching
+    if (attempt == OverrideCheckingAttempt::MismatchedSendability){
+        propertyTy = propertyTy->stripConcurrency(true, true);
+        parentPropertyTy = parentPropertyTy->stripConcurrency(true, true);
+    }
+
+    if (!propertyTy->matches(parentPropertyTy,
                              TypeMatchFlags::AllowOverride)) {
       diags.diagnose(property, diag::override_property_type_mismatch,
                      property->getName(), propertyTy, parentPropertyTy);
@@ -1282,6 +1288,7 @@ bool OverrideMatcher::checkOverride(ValueDecl *baseDecl,
 
     // The overridden property must not be mutable.
     if (cast<AbstractStorageDecl>(baseDecl)->supportsMutation() &&
+        attempt != OverrideCheckingAttempt::MismatchedSendability &&
         !IsSilentDifference) {
       diags.diagnose(property, diag::override_mutable_covariant_property,
                   property->getName(), parentPropertyTy, propertyTy);
@@ -1341,6 +1348,9 @@ TinyPtrVector<ValueDecl *> OverrideMatcher::checkPotentialOverrides(
   // Check the matches. If any are ill-formed, drop them.
   TinyPtrVector<ValueDecl *> overridden;
   for (const auto &match : matches) {
+    if (match.Decl->preconcurrency())
+        attempt = OverrideCheckingAttempt::MismatchedSendability;
+
     if (checkOverride(match.Decl, attempt))
       continue;
 
