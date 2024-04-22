@@ -1260,16 +1260,16 @@ bool OverrideMatcher::checkOverride(ValueDecl *baseDecl,
     auto propertyTy = property->getInterfaceType();
     auto parentPropertyTy = getSuperMemberDeclType(baseDecl);
 
-    CanType parentPropertyCanTy =
-      parentPropertyTy->getReducedType(
-        decl->getInnermostDeclContext()->getGenericSignatureOfContext());
     // If @preconcurrency, strip concurrency from decl before matching
-    if (attempt == OverrideCheckingAttempt::MismatchedSendability){
+    if (attempt == OverrideCheckingAttempt::MismatchedSendability && baseDecl->preconcurrency()){
         propertyTy = propertyTy->stripConcurrency(true, true);
         parentPropertyTy = parentPropertyTy->stripConcurrency(true, true);
     }
+    CanType parentPropertyCanTy =
+      parentPropertyTy->getReducedType(
+        decl->getInnermostDeclContext()->getGenericSignatureOfContext());
 
-    if (!propertyTy->matches(parentPropertyTy,
+    if (!propertyTy->matches(parentPropertyCanTy,
                              TypeMatchFlags::AllowOverride)) {
       diags.diagnose(property, diag::override_property_type_mismatch,
                      property->getName(), propertyTy, parentPropertyTy);
@@ -1348,7 +1348,7 @@ TinyPtrVector<ValueDecl *> OverrideMatcher::checkPotentialOverrides(
   // Check the matches. If any are ill-formed, drop them.
   TinyPtrVector<ValueDecl *> overridden;
   for (const auto &match : matches) {
-    if (match.Decl->preconcurrency())
+    if (match.Decl->preconcurrency() && !match.Decl->isObjC())
         attempt = OverrideCheckingAttempt::MismatchedSendability;
 
     if (checkOverride(match.Decl, attempt))
