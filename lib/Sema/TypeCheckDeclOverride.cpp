@@ -1270,19 +1270,20 @@ bool OverrideMatcher::checkOverride(ValueDecl *baseDecl,
                              TypeMatchFlags::AllowOverride)) {
       // If @preconcurrency, strip concurrency from decl before matching
       if (baseDecl->preconcurrency()){
-          // perfect match has failed, now check for sendability match
+        // perfect match has failed, now check for sendability match
         attempt = OverrideCheckingAttempt::MismatchedSendability;
         propertyTy = propertyTy->stripConcurrency(true, true);
         parentPropertyCanTy =
-               Type(parentPropertyCanTy)->stripConcurrency(true,true)->getCanonicalType();
+        Type(parentPropertyCanTy)->stripConcurrency(true,true)->getCanonicalType();
         
-        if (!propertyTy->matches(parentPropertyCanTy, options)) {
+        if (!propertyTy->matches(parentPropertyCanTy, TypeMatchFlags::AllowOverride)) {
           diags.diagnose(property, diag::override_property_type_mismatch,
                          property->getName(), propertyTy, parentPropertyTy);
           noteFixableMismatchedTypes(decl, baseDecl);
           diags.diagnose(baseDecl, diag::property_override_here);
           return true;
         }
+      }
     }
 
     // Differing only in Optional vs. ImplicitlyUnwrappedOptional is fine.
